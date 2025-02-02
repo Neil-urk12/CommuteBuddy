@@ -3,8 +3,7 @@
   "version": "0.0.1",
   "description": "A fare calculator tool with an interactive map with pin feature.",
   "productName": "CommuteBuddy",
-  "author": "Neil Vallecer <neilvallecer12
-@gmail.com>",
+  "author": "Neil Vallecer <neilvallecer12@gmail.com>",
   "type": "module",
   "private": true,
   "scripts": {
