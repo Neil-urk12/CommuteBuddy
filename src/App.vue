@@ -1,7 +1,22 @@
+<script setup lang="ts">
+</script>
+
 <template>
   <router-view />
 </template>
 
-<script setup lang="ts">
-//
-</script>
+<style scoped>
+/* Import Leaflet CSS */
+@import "leaflet/dist/leaflet.css";
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+}
+</style>
