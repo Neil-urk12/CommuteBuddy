@@ -33,6 +33,28 @@
         </div>
       </div>
     </div>
+
+    <!-- Add route selection modal -->
+    <div v-if="showRouteModal" class="route-modal">
+      <div class="route-modal-content">
+        <h3>Available Routes</h3>
+        <div class="routes-list">
+          <div
+            v-for="route in alternativeRoutes"
+            :key="route.id"
+            class="route-option"
+            :class="{ active: selectedRoute === route.id }"
+            @click="selectRoute(route.id)"
+          >
+            <div class="route-info">
+              <div class="route-time">{{ route.timeText }}</div>
+              <div class="route-distance">{{ route.distanceText }}</div>
+            </div>
+          </div>
+        </div>
+        <button class="close-modal" @click="showRouteModal = false">Close</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -69,7 +91,9 @@ const createCustomMarker = (label: string) => {
 // Add these new refs and state variables after the existing ones
 const routeLine = ref<L.Polyline | null>(null)
 const distance = ref<number | null>(null)
-// const isCalculating = ref(false)
+const selectedRoute = ref<number>(0)
+const alternativeRoutes = ref<any[]>([])
+const showRouteModal = ref(false)
 
 // Handle map clicks
 const handleMapClick = (e: L.LeafletMouseEvent) => {
@@ -81,7 +105,7 @@ const handleMapClick = (e: L.LeafletMouseEvent) => {
     pinA.value = L.marker(latlng, { 
       icon: createCustomMarker('A'),
       draggable: true
-    }).addTo(map)
+    }).addTo(map!)
     
     // Add drag end handler for pin A
     pinA.value.on('dragend', () => { void updateRoute() })
@@ -89,7 +113,7 @@ const handleMapClick = (e: L.LeafletMouseEvent) => {
     pinB.value = L.marker(latlng, { 
       icon: createCustomMarker('B'),
       draggable: true
-    }).addTo(map)
+    }).addTo(map!)
     pinB.value.on('dragend', () => { void updateRoute() })
     void updateRoute()
   }
@@ -141,34 +165,56 @@ const updateRoute = async () => {
   const pointB = pinB.value.getLatLng()
   
   try {
-    const url = `https://graphhopper.com/api/1/route?point=${pointA.lat},${pointA.lng}&point=${pointB.lat},${pointB.lng}&vehicle=car&key=${import.meta.env.VITE_GRAPH_HOPPER_API_KEY}&points_encoded=false`
-    console.log('Fetching route:', url)
+    // Request alternative routes by adding alternative_route_max_paths
+    const url = `https://graphhopper.com/api/1/route?` + 
+      `point=${pointA.lat},${pointA.lng}&` +
+      `point=${pointB.lat},${pointB.lng}&` +
+      `vehicle=car&` +
+      `key=${import.meta.env.VITE_GRAPH_HOPPER_API_KEY}&` +
+      `points_encoded=false&` +
+      `algorithm=alternative_route&` +
+      `alternative_route.max_paths=3&` +
+      `alternative_route.max_weight_factor=1.4&` +
+      `ch.disable=true`
     const response = await fetch(url)
     const data = await response.json()
-    console.log('Route response:', data)
 
-    if (data.paths?.[0]?.points?.coordinates) {
-      const coordinates = data.paths[0].points.coordinates
-      console.log('Route coordinates:', coordinates)
-      
-      routeLine.value = L.polyline(coordinates.map((coord: number[]) => [coord[1], coord[0]]), {
-        color: '#007AFF',
-        weight: 3,
-        opacity: 0.8
-      }).addTo(map)
-      
-      distance.value = data.paths[0].distance / 1000 // Convert to km
-      
-      // Update distance label
-      const distanceDisplay = document.querySelector('.distance-label')
-      if (distanceDisplay) {
-        distanceDisplay.textContent = 'Road distance'
+    if (data.paths?.length) {
+      // Clear existing routes
+      alternativeRoutes.value.forEach(route => {
+        if (route.line) route.line.remove()
+      })
+
+      alternativeRoutes.value = data.paths.map((path: any, index: number) => {
+        const coordinates = path.points.coordinates.map((coord: number[]) => [coord[1], coord[0]])
+        const line = L.polyline(coordinates, {
+          color: index === selectedRoute.value ? '#007AFF' : '#B0B0B0',
+          weight: index === selectedRoute.value ? 4 : 3,
+          opacity: index === selectedRoute.value ? 0.8 : 0.5,
+          dashArray: index === selectedRoute.value ? undefined : '5, 10'
+        }).addTo(map!)
+
+        return {
+          ...path,
+          id: index,
+          line,
+          coordinates,
+          timeText: formatTime(path.time),
+          distanceText: formatDistance(path.distance)
+        }
+      })
+
+      if (selectedRoute.value >= alternativeRoutes.value.length) {
+        selectedRoute.value = 0
       }
+
+      distance.value = alternativeRoutes.value[selectedRoute.value].distance / 1000
+      showRouteModal.value = alternativeRoutes.value.length > 1
     } else {
-      throw new Error('Invalid route data')
+      throw new Error('No routes found')
     }
   } catch (error) {
-    console.warn('Routing failed, falling back to direct line:', error)
+    console.warn('Routing failed:', error)
     // Fallback to straight line
     routeLine.value = L.polyline([
       [pointA.lat, pointA.lng],
@@ -178,7 +224,7 @@ const updateRoute = async () => {
       weight: 3,
       opacity: 0.8,
       dashArray: '5, 10'
-    }).addTo(map)
+    }).addTo(map!)
     
     distance.value = calculateDistance(pointA, pointB)
   }
@@ -272,6 +318,26 @@ const calculateDistance = (latlng1: L.LatLng, latlng2: L.LatLng): number => {
     Math.sin(dLon/2) * Math.sin(dLon/2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
   return R * c
+}
+
+// Add these utility functions
+const formatTime = (milliseconds: number): string => {
+  const minutes = Math.round(milliseconds / 60000)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}min`
+}
+
+const formatDistance = (meters: number): string => {
+  const km = meters / 1000
+  return `${km.toFixed(1)} km`
+}
+
+// Add with other functions
+const selectRoute = (routeId: number) => {
+  selectedRoute.value = routeId
+  void updateRoute()
 }
 
 onMounted(() => {
@@ -504,6 +570,74 @@ onUnmounted(() => {
     .distance-label {
       font-size: 11px;
     }
+  }
+}
+
+.route-modal {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-radius: 16px 16px 0 0;
+  padding: 20px;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  z-index: 1001;
+  
+  h3 {
+    margin: 0 0 16px;
+    font-size: 18px;
+  }
+}
+
+.routes-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.route-option {
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background: #f5f5f5;
+  }
+  
+  &.active {
+    background: #e6f2ff;
+    border: 1px solid #007AFF;
+  }
+}
+
+.route-info {
+  .route-time {
+    font-weight: 600;
+    font-size: 16px;
+  }
+  
+  .route-distance {
+    font-size: 14px;
+    color: #666;
+    margin-top: 4px;
+  }
+}
+
+.close-modal {
+  width: 100%;
+  padding: 12px;
+  margin-top: 16px;
+  border: none;
+  background: #007AFF;
+  color: white;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  
+  &:hover {
+    background: #0056b3;
   }
 }
 </style>
