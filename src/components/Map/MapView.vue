@@ -11,12 +11,20 @@
         <span class="location-icon">📍</span>
         <span class="loading-spinner" v-if="isLocating"></span>
       </button>
+      <button 
+        class="reset-button" 
+        @click="resetPins"
+        v-if="hasAnyPin"
+        aria-label="Reset pins"
+      >
+        Reset
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import SearchBar from './SearchBar.vue'
@@ -27,6 +35,52 @@ const DEFAULT_ZOOM = 6
 let map: L.Map | null = null
 const isLocating = ref(false)
 const isMobile = ref(window.innerWidth <= 768)
+
+// Pin management
+const pinA = ref<L.Marker | null>(null)
+const pinB = ref<L.Marker | null>(null)
+const hasAnyPin = computed(() => pinA.value !== null || pinB.value !== null)
+
+// Custom markers
+const createCustomMarker = (label: string) => {
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `<div class="marker-label">${label}</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 32]
+  })
+}
+
+// Handle map clicks
+const handleMapClick = (e: L.LeafletMouseEvent) => {
+  if (!map) return
+  
+  const latlng = e.latlng
+  
+  if (!pinA.value) {
+    pinA.value = L.marker(latlng, { 
+      icon: createCustomMarker('A'),
+      draggable: true
+    }).addTo(map)
+  } else if (!pinB.value) {
+    pinB.value = L.marker(latlng, { 
+      icon: createCustomMarker('B'),
+      draggable: true
+    }).addTo(map)
+  }
+}
+
+// Reset pins
+const resetPins = () => {
+  if (pinA.value) {
+    pinA.value.remove()
+    pinA.value = null
+  }
+  if (pinB.value) {
+    pinB.value.remove()
+    pinB.value = null
+  }
+}
 
 // Handle window resize
 const handleResize = () => {
@@ -83,7 +137,7 @@ const goToCurrentLocation = async () => {
 
 onMounted(() => {
   map = L.map('map', {
-    zoomControl: !isMobile.value // Disable zoom control on mobile
+    zoomControl: !isMobile.value
   }).setView(DEFAULT_CENTER, DEFAULT_ZOOM)
 
   if (!isMobile.value) {
@@ -94,12 +148,16 @@ onMounted(() => {
     attribution: '© OpenStreetMap contributors'
   }).addTo(map)
 
+  // Add map click handler
+  map.on('click', handleMapClick)
+
   // Add resize listener
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   if (map) {
+    map.off('click', handleMapClick)
     map.remove()
   }
   window.removeEventListener('resize', handleResize)
@@ -182,6 +240,61 @@ onUnmounted(() => {
   100% { transform: rotate(360deg); }
 }
 
+.reset-button {
+  position: fixed;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  left: 16px;
+  z-index: 1000;
+  background: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background-color: #f0f0f0;
+  }
+
+  &:active {
+    background-color: #e0e0e0;
+    transform: scale(0.98);
+  }
+}
+
+:global(.custom-marker) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:global(.marker-label) {
+  width: 32px;
+  height: 32px;
+  background: #007AFF;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid #007AFF;
+  }
+}
+
 @media (max-width: 768px) {
   .location-button {
     bottom: max(env(safe-area-inset-bottom, 24px), 24px);
@@ -193,6 +306,11 @@ onUnmounted(() => {
 
   .location-icon {
     font-size: 22px;
+  }
+
+  .reset-button {
+    bottom: max(env(safe-area-inset-bottom, 88px), 88px);
+    padding: 10px 20px;
   }
 
   // Hide default zoom controls on mobile
