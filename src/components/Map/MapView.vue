@@ -19,6 +19,19 @@
       >
         Reset
       </button>
+      
+      <!-- Add this new distance display -->
+      <div 
+        v-if="hasBothPins && distance !== null" 
+        class="distance-display"
+      >
+        <div class="distance-value">
+          {{ distance.toFixed(2) }} km
+        </div>
+        <div class="distance-label">
+          Direct distance
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -28,6 +41,7 @@ import { onMounted, onUnmounted, ref, computed } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import SearchBar from './SearchBar.vue'
+import type { LatLng, LatLngExpression } from 'leaflet'
 
 const DEFAULT_CENTER: [number, number] = [12.8797, 121.7740]
 const DEFAULT_ZOOM = 6
@@ -40,6 +54,7 @@ const isMobile = ref(window.innerWidth <= 768)
 const pinA = ref<L.Marker | null>(null)
 const pinB = ref<L.Marker | null>(null)
 const hasAnyPin = computed(() => pinA.value !== null || pinB.value !== null)
+const hasBothPins = computed(() => pinA.value !== null && pinB.value !== null)
 
 // Custom markers
 const createCustomMarker = (label: string) => {
@@ -50,6 +65,11 @@ const createCustomMarker = (label: string) => {
     iconAnchor: [16, 32]
   })
 }
+
+// Add these new refs and state variables after the existing ones
+const routeLine = ref<L.Polyline | null>(null)
+const distance = ref<number | null>(null)
+// const isCalculating = ref(false)
 
 // Handle map clicks
 const handleMapClick = (e: L.LeafletMouseEvent) => {
@@ -62,12 +82,113 @@ const handleMapClick = (e: L.LeafletMouseEvent) => {
       icon: createCustomMarker('A'),
       draggable: true
     }).addTo(map)
+    
+    // Add drag end handler for pin A
+    pinA.value.on('dragend', () => { void updateRoute() })
   } else if (!pinB.value) {
     pinB.value = L.marker(latlng, { 
       icon: createCustomMarker('B'),
       draggable: true
     }).addTo(map)
+    pinB.value.on('dragend', () => { void updateRoute() })
+    void updateRoute()
   }
+}
+
+// Add this utility function to decode the polyline
+const decodePolyline = (str: string): LatLngExpression[] => {
+  const points: LatLngExpression[] = []
+  let index = 0, lat = 0, lng = 0
+
+  while (index < str.length) {
+    let shift = 0, result = 0
+    
+    do {
+      result |= (str.charCodeAt(index) - 63 - 1) << shift
+      shift += 5
+      index++
+    } while (str.charCodeAt(index - 1) >= 0x20)
+
+    lat += ((result & 1) ? ~(result >> 1) : (result >> 1))
+    
+    shift = 0
+    result = 0
+    
+    do {
+      result |= (str.charCodeAt(index) - 63 - 1) << shift
+      shift += 5
+      index++
+    } while (str.charCodeAt(index - 1) >= 0x20)
+    
+    lng += ((result & 1) ? ~(result >> 1) : (result >> 1))
+    
+    points.push([lat / 1e5, lng / 1e5])
+  }
+  
+  return points
+}
+
+// Update the updateRoute function
+const updateRoute = async () => {
+  if (!map || !pinA.value || !pinB.value) return
+  
+  if (routeLine.value) {
+    routeLine.value.remove()
+    routeLine.value = null
+  }
+  
+  const pointA = pinA.value.getLatLng()
+  const pointB = pinB.value.getLatLng()
+  
+  try {
+    const url = `https://graphhopper.com/api/1/route?point=${pointA.lat},${pointA.lng}&point=${pointB.lat},${pointB.lng}&vehicle=car&key=${import.meta.env.VITE_GRAPH_HOPPER_API_KEY}&points_encoded=false`
+    console.log('Fetching route:', url)
+    const response = await fetch(url)
+    const data = await response.json()
+    console.log('Route response:', data)
+
+    if (data.paths?.[0]?.points?.coordinates) {
+      const coordinates = data.paths[0].points.coordinates
+      console.log('Route coordinates:', coordinates)
+      
+      routeLine.value = L.polyline(coordinates.map((coord: number[]) => [coord[1], coord[0]]), {
+        color: '#007AFF',
+        weight: 3,
+        opacity: 0.8
+      }).addTo(map)
+      
+      distance.value = data.paths[0].distance / 1000 // Convert to km
+      
+      // Update distance label
+      const distanceDisplay = document.querySelector('.distance-label')
+      if (distanceDisplay) {
+        distanceDisplay.textContent = 'Road distance'
+      }
+    } else {
+      throw new Error('Invalid route data')
+    }
+  } catch (error) {
+    console.warn('Routing failed, falling back to direct line:', error)
+    // Fallback to straight line
+    routeLine.value = L.polyline([
+      [pointA.lat, pointA.lng],
+      [pointB.lat, pointB.lng]
+    ], {
+      color: '#007AFF',
+      weight: 3,
+      opacity: 0.8,
+      dashArray: '5, 10'
+    }).addTo(map)
+    
+    distance.value = calculateDistance(pointA, pointB)
+  }
+
+  map.fitBounds([
+    [pointA.lat, pointA.lng],
+    [pointB.lat, pointB.lng]
+  ], {
+    padding: [50, 50]
+  })
 }
 
 // Reset pins
@@ -80,6 +201,11 @@ const resetPins = () => {
     pinB.value.remove()
     pinB.value = null
   }
+  if (routeLine.value) {
+    routeLine.value.remove()
+    routeLine.value = null
+  }
+  distance.value = null
 }
 
 // Handle window resize
@@ -135,6 +261,19 @@ const goToCurrentLocation = async () => {
   }
 }
 
+// Add this utility function for calculating distance
+const calculateDistance = (latlng1: L.LatLng, latlng2: L.LatLng): number => {
+  const R = 6371 // Earth's radius in km
+  const dLat = (latlng2.lat - latlng1.lat) * Math.PI / 180
+  const dLon = (latlng2.lng - latlng1.lng) * Math.PI / 180
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(latlng1.lat * Math.PI / 180) * Math.cos(latlng2.lat * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  return R * c
+}
+
 onMounted(() => {
   map = L.map('map', {
     zoomControl: !isMobile.value
@@ -158,6 +297,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (map) {
     map.off('click', handleMapClick)
+    if (routeLine.value) routeLine.value.remove()
     map.remove()
   }
   window.removeEventListener('resize', handleResize)
@@ -323,6 +463,47 @@ onUnmounted(() => {
   .location-button {
     padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
     bottom: max(env(safe-area-inset-bottom, 16px), 16px);
+  }
+}
+
+.distance-display {
+  position: fixed;
+  top: 80px; // Below search bar
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  border-radius: 8px;
+  padding: 12px 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  text-align: center;
+  z-index: 1000;
+  
+  .distance-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #007AFF;
+  }
+  
+  .distance-label {
+    font-size: 12px;
+    color: #666;
+    margin-top: 4px;
+  }
+}
+
+@media (max-width: 768px) {
+  .distance-display {
+    top: auto;
+    bottom: max(env(safe-area-inset-bottom, 152px), 152px);
+    padding: 10px 16px;
+    
+    .distance-value {
+      font-size: 16px;
+    }
+    
+    .distance-label {
+      font-size: 11px;
+    }
   }
 }
 </style>
