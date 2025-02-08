@@ -1,5 +1,6 @@
 <template>
   <div class="map-wrapper">
+    <SearchBar @search="handleSearch" />
     <div id="map" class="map-container">
       <button 
         class="location-button" 
@@ -18,12 +19,44 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import SearchBar from './SearchBar.vue'
 
 const DEFAULT_CENTER: [number, number] = [12.8797, 121.7740]
 const DEFAULT_ZOOM = 6
 
 let map: L.Map | null = null
 const isLocating = ref(false)
+const isMobile = ref(window.innerWidth <= 768)
+
+// Handle window resize
+const handleResize = () => {
+  isMobile.value = window.innerWidth <= 768
+  if (map) {
+    map.removeControl(map.zoomControl)
+    if (!isMobile.value) {
+      L.control.zoom({ position: 'topright' }).addTo(map)
+    }
+  }
+}
+
+// Search handling
+const handleSearch = async (query: string) => {
+  if (!query) return
+  
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
+    )
+    const data = await response.json()
+    
+    if (data && data.length > 0 && map) {
+      const { lat, lon } = data[0]
+      map.setView([parseFloat(lat), parseFloat(lon)], 15)
+    }
+  } catch (error) {
+    console.error('Search error:', error)
+  }
+}
 
 const goToCurrentLocation = async () => {
   if (!map || isLocating.value) return
@@ -49,17 +82,27 @@ const goToCurrentLocation = async () => {
 }
 
 onMounted(() => {
-    map = L.map('map').setView(DEFAULT_CENTER, DEFAULT_ZOOM)
+  map = L.map('map', {
+    zoomControl: !isMobile.value // Disable zoom control on mobile
+  }).setView(DEFAULT_CENTER, DEFAULT_ZOOM)
+
+  if (!isMobile.value) {
+    L.control.zoom({ position: 'topright' }).addTo(map)
+  }
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors'
   }).addTo(map)
+
+  // Add resize listener
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   if (map) {
     map.remove()
   }
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -150,6 +193,11 @@ onUnmounted(() => {
 
   .location-icon {
     font-size: 22px;
+  }
+
+  // Hide default zoom controls on mobile
+  :deep(.leaflet-control-zoom) {
+    display: none;
   }
 }
 
