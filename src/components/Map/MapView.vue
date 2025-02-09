@@ -22,14 +22,6 @@
       >
         Reset
       </button>
-      <button 
-        class="favorite-button" 
-        @click="addCurrentToFavorites"
-        v-if="map"
-        aria-label="Save current location"
-      >
-        ☆ Save Location
-      </button>
 
       <div
         v-if="hasBothPins && distance !== null"
@@ -40,6 +32,23 @@
         </div>
         <div class="distance-label">
           Direct distance
+        </div>
+      </div>
+
+      <div 
+        v-if="showSavePrompt" 
+        class="save-prompt"
+      >
+        <div class="save-prompt-content">
+          <span>Save "{{ lastSearchQuery }}" to favorites?</span>
+          <div class="save-prompt-actions">
+            <button @click="addToFavorites" class="save-button">
+              Save
+            </button>
+            <button @click="dismissSavePrompt" class="dismiss-button">
+              Dismiss
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -107,6 +116,13 @@ const showRouteModal = ref(false)
 const searchStore = useSearchStore()
 
 const currentSearchResult = ref<any>(null)
+
+const showSavePrompt = ref(false)
+const lastSearchQuery = ref('')
+
+const isLocationFavorited = (query: string) => {
+  return searchStore.favorites.some(f => f.query === query)
+}
 
 const handleMapClick = (e: L.LeafletMouseEvent) => {
   if (!map) return
@@ -286,9 +302,10 @@ const handleSearch = async (query: string, isConfirmed: boolean = false) => {
       `https://nominatim.openstreetmap.org/search?` +
       `format=json&` +
       `q=${encodeURIComponent(query)}&` +
-      `viewbox=116.94,4.58,126.60,21.12&` +  // Philippines bounding box
-      `bounded=0&` +  // Allow results outside viewbox but prioritize inside
-      `countrycodes=ph`  // Prioritize Philippines results
+      `viewbox=116.94,4.58,126.60,21.12&` +
+      `bounded=0&` +
+      `countrycodes=ph&` +
+      `limit=8`
     )
     const data = await response.json()
     
@@ -304,6 +321,15 @@ const handleSearch = async (query: string, isConfirmed: boolean = false) => {
       }
       
       searchStore.addToHistory(query, parseFloat(lat), parseFloat(lon))
+
+      if (!isLocationFavorited(query)) {
+        lastSearchQuery.value = query
+        showSavePrompt.value = true
+        
+        setTimeout(() => {
+          showSavePrompt.value = false
+        }, 5000)
+      }
     }
   } catch (error) {
     console.error('Search error:', error)
@@ -372,6 +398,22 @@ const addCurrentToFavorites = () => {
     lat: center.lat,
     lng: center.lng
   })
+}
+
+const addToFavorites = () => {
+  if (!map) return
+  const center = map.getCenter()
+  searchStore.addToFavorites({
+    query: lastSearchQuery.value,
+    timestamp: Date.now(),
+    lat: center.lat,
+    lng: center.lng
+  })
+  showSavePrompt.value = false
+}
+
+const dismissSavePrompt = () => {
+  showSavePrompt.value = false
 }
 
 onMounted(() => {
@@ -695,6 +737,72 @@ onUnmounted(() => {
 
   &:hover {
     background: #0056b3;
+  }
+}
+
+.save-prompt {
+  position: fixed;
+  bottom: max(env(safe-area-inset-bottom, 88px), 88px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  animation: slideUp 0.3s ease-out;
+}
+
+.save-prompt-content {
+  text-align: center;
+  
+  span {
+    font-size: 14px;
+    color: #333;
+  }
+}
+
+.save-prompt-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  
+  button {
+    flex: 1;
+    padding: 8px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    
+    &.save-button {
+      background: #007AFF;
+      color: white;
+      
+      &:hover {
+        background: #0056b3;
+      }
+    }
+    
+    &.dismiss-button {
+      background: #f0f0f0;
+      color: #666;
+      
+      &:hover {
+        background: #e0e0e0;
+      }
+    }
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translate(-50%, 100%);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
   }
 }
 </style>
