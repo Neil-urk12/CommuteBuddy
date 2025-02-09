@@ -47,10 +47,7 @@
         </div>
 
         <div class="suggestion-section">
-          <div v-if="isSearching" class="empty-state">
-            Searching...
-          </div>
-          <div v-else-if="searchSuggestions.length === 0" class="empty-state">
+          <div v-if="searchSuggestions.length === 0" class="empty-state">
             No results found
           </div>
           <div
@@ -137,7 +134,6 @@ const showSuggestions = ref(false)
 const searchStore = useSearchStore()
 const currentSearchResult = ref<any>(null)
 const searchSuggestions = ref<any[]>([])
-const isSearching = ref(false)
 
 const props = defineProps<{
   onSearchResult?: (result: any) => void
@@ -155,7 +151,19 @@ const showDropdown = () => {
   showSuggestions.value = true
 }
 
-const handleInput = async () => {
+const debounce = (fn: Function, wait: number) => {
+  let timeout: ReturnType<typeof setTimeout>
+  return function executedFunction(...args: any[]) {
+    const later = () => {
+      clearTimeout(timeout)
+      fn(...args)
+    }
+    clearTimeout(timeout)
+    timeout = setTimeout(later, wait)
+  }
+}
+
+const handleInput = debounce(async () => {
   showSuggestions.value = true
   
   if (!searchQuery.value.trim()) {
@@ -163,7 +171,6 @@ const handleInput = async () => {
     return
   }
 
-  isSearching.value = true
   try {
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?` +
@@ -172,17 +179,15 @@ const handleInput = async () => {
       `viewbox=116.94,4.58,126.60,21.12&` +
       `bounded=0&` +
       `countrycodes=ph&` +
-      `limit=5`
+      `limit=8`
     )
     const data = await response.json()
     searchSuggestions.value = data
   } catch (error) {
     console.error('Search suggestions error:', error)
     searchSuggestions.value = []
-  } finally {
-    isSearching.value = false
   }
-}
+}, 300)
 
 const confirmSearch = () => {
   if (searchQuery.value.trim()) {
