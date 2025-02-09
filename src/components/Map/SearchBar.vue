@@ -1,6 +1,12 @@
 <template>
   <div class="search-container">
     <div class="search-box">
+      <button 
+        class="search-icon"
+        aria-label="Search"
+      >
+        🔍
+      </button>
       <input
         type="text"
         v-model="searchQuery"
@@ -11,19 +17,17 @@
         class="search-input"
       />
       <button 
-        class="search-button" 
-        @click="confirmSearch"
-        aria-label="Search"
-      >
-        🔍
-      </button>
-      <button 
-        class="clear-button" 
         v-if="searchQuery" 
         @click="clearSearch"
-        aria-label="Clear search"
+        class="clear-button"
+      >✕</button>
+      <div class="divider"></div>
+      <button 
+        class="directions-button"
+        @click.stop="toggleDirections"
+        aria-label="Get directions"
       >
-        ✕
+        🗺️
       </button>
     </div>
 
@@ -62,6 +66,13 @@
               <div>{{ suggestion.display_name }}</div>
               <div class="suggestion-address">{{ suggestion.address }}</div>
             </div>
+            <button 
+              class="get-directions"
+              @click.stop="getDirections(suggestion)"
+              aria-label="Get directions"
+            >
+              🗺️
+            </button>
           </div>
         </div>
       </template>
@@ -142,6 +153,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'search', query: string, isConfirmed: boolean): void
   (e: 'select-location', location: { lat: number, lng: number }): void
+  (e: 'get-directions', location: { lat: number, lng: number }): void
+  (e: 'toggle-directions', event: MouseEvent): void
 }>()
 
 const searchHistory = computed(() => searchStore.history)
@@ -258,6 +271,22 @@ const selectSuggestion = (suggestion: any) => {
   showSuggestions.value = false
 }
 
+const getDirections = (suggestion: any) => {
+  if (suggestion.lat && suggestion.lon) {
+    emit('get-directions', { 
+      lat: parseFloat(suggestion.lat), 
+      lng: parseFloat(suggestion.lon) 
+    })
+  }
+  showSuggestions.value = false
+}
+
+const toggleDirections = (e: MouseEvent) => {
+  e.preventDefault()
+  e.stopPropagation()
+  emit('toggle-directions', e)
+}
+
 onMounted(() => {
   searchStore.loadHistory()
   document.addEventListener('click', handleClickOutside)
@@ -282,50 +311,59 @@ onUnmounted(() => {
 .search-box {
   position: relative;
   width: 100%;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+}
+
+.search-icon {
+  background: none;
+  border: none;
+  padding: 8px;
+  color: #666;
+  cursor: pointer;
 }
 
 .search-input {
-  width: 100%;
-  padding: 12px 80px 12px 16px;
-  background: white;
+  flex: 1;
+  padding: 8px;
   border: none;
-  border-radius: 8px;
   font-size: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  -webkit-appearance: none;
-  appearance: none;
+  background: transparent;
 
   &:focus {
     outline: none;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+  }
+
+  &::placeholder {
+    color: #666;
   }
 }
 
-.search-button {
-  position: absolute;
-  right: 40px;
-  top: 50%;
-  transform: translateY(-50%);
+.divider {
+  width: 1px;
+  height: 24px;
+  background: #ddd;
+  margin: 0 8px;
+}
+
+.directions-button {
   background: none;
   border: none;
   padding: 8px;
   cursor: pointer;
   color: #666;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-
+  font-size: 20px;
+  
   &:hover {
-    background-color: #f0f0f0;
+    color: #007AFF;
   }
 }
 
 .clear-button {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
   background: none;
   border: none;
   padding: 8px;
@@ -334,32 +372,61 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-
-  &:hover {
-    background-color: #f0f0f0;
-  }
 }
 
 @media (max-width: 768px) {
   .search-container {
     width: calc(100% - 32px);
+    max-width: none;
+  }
+
+  .search-box {
+    padding: 8px;
   }
 
   .search-input {
-    padding: 14px 40px 14px 16px;
+    font-size: 16px; // Prevents iOS zoom on focus
+  }
+
+  .suggestions-dropdown {
+    position: fixed;
+    top: max(env(safe-area-inset-top, 72px), 72px);
+    left: 16px;
+    right: 16px;
+    bottom: 0;
+    max-height: none;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .suggestion-item {
+    padding: 16px;
+  }
+
+  .section-title {
+    padding: 16px;
+  }
+}
+
+// Add iOS safe area support
+@supports (padding: max(0px)) {
+  .search-container {
+    padding-top: max(0px, env(safe-area-inset-top));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
   }
 }
 
 .suggestions-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 8px);
   left: 0;
   right: 0;
   background: white;
-  margin-top: 8px;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
   z-index: 1000;
 }
 
@@ -461,5 +528,19 @@ onUnmounted(() => {
   font-size: 12px;
   color: #666;
   margin-top: 2px;
+}
+
+.get-directions {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #666;
+  font-size: 16px;
+  margin-left: 8px;
+  
+  &:hover {
+    color: #007AFF;
+  }
 }
 </style> 

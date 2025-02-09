@@ -1,19 +1,27 @@
 <template>
   <div class="map-wrapper">
     <SearchBar 
-      @search="handleSearch" 
+      @search="handleSearch"
+      @toggle-directions="toggleDirections"
       :onSearchResult="(result) => currentSearchResult = result"
     />
+    <DirectionsSearch 
+      ref="directionsSearch"
+      v-model="isDirectionsMode"
+      @update-pin="handleDirectionPin"
+    />
     <div id="map" class="map-container">
-      <button
-        class="location-button"
-        @click.stop="goToCurrentLocation"
-        :class="{ 'is-locating': isLocating }"
-        aria-label="Get current location"
-      >
-        <span class="location-icon">📍</span>
-        <span class="loading-spinner" v-if="isLocating"></span>
-      </button>
+      <div class="map-controls">
+        <button
+          class="location-button"
+          @click.stop="goToCurrentLocation"
+          :class="{ 'is-locating': isLocating }"
+          aria-label="Get current location"
+        >
+          <span class="location-icon">📍</span>
+          <span class="loading-spinner" v-if="isLocating"></span>
+        </button>
+      </div>
       <button
         class="reset-button"
         @click.stop="resetPins"
@@ -83,6 +91,7 @@ import 'leaflet/dist/leaflet.css'
 import SearchBar from './SearchBar.vue'
 import type { LatLng, LatLngExpression } from 'leaflet'
 import { useSearchStore } from 'src/stores/searchStore'
+import DirectionsSearch from './DirectionsSearch.vue'
 
 const DEFAULT_CENTER: [number, number] = [12.8797, 121.7740]
 const DEFAULT_ZOOM = 6
@@ -119,6 +128,9 @@ const currentSearchResult = ref<any>(null)
 
 const showSavePrompt = ref(false)
 const lastSearchQuery = ref('')
+
+const directionsSearch = ref<any>(null)
+const isDirectionsMode = ref(false)
 
 const isLocationFavorited = (query: string) => {
   return searchStore.favorites.some(f => f.query === query)
@@ -197,7 +209,7 @@ const updateRoute = async () => {
       `key=${import.meta.env.VITE_GRAPH_HOPPER_API_KEY}&` +
       `points_encoded=false&` +
       `algorithm=alternative_route&` +
-      `alternative_route.max_paths=3&` +
+      `alternative_route.max_paths=10&` +
       `alternative_route.max_weight_factor=1.4&` +
       `ch.disable=true`
     const response = await fetch(url)
@@ -416,6 +428,59 @@ const dismissSavePrompt = () => {
   showSavePrompt.value = false
 }
 
+const handleGetDirections = (location: { lat: number, lng: number }) => {
+  if (!map) return
+
+  // Set destination pin
+  if (pinB.value) {
+    pinB.value.remove()
+  }
+  pinB.value = L.marker([location.lat, location.lng], {
+    icon: createCustomMarker('B'),
+    draggable: true
+  }).addTo(map)
+  pinB.value.on('dragend', () => { void updateRoute() })
+
+  // Set origin pin at current location if no pinA
+  if (!pinA.value) {
+    const center = map.getCenter()
+    pinA.value = L.marker([center.lat, center.lng], {
+      icon: createCustomMarker('A'),
+      draggable: true
+    }).addTo(map)
+    pinA.value.on('dragend', () => { void updateRoute() })
+  }
+
+  void updateRoute()
+}
+
+const toggleDirections = (e: MouseEvent) => {
+  e.preventDefault()
+  e.stopPropagation()
+  if (directionsSearch.value) {
+    directionsSearch.value.showDirections = !directionsSearch.value.showDirections
+  }
+}
+
+const handleDirectionPin = (type: 'A' | 'B', location: { lat: number, lng: number }) => {
+  if (!map) return
+
+  const pin = type === 'A' ? pinA : pinB
+  if (pin.value) {
+    pin.value.remove()
+  }
+  
+  pin.value = L.marker([location.lat, location.lng], {
+    icon: createCustomMarker(type),
+    draggable: true
+  }).addTo(map)
+  pin.value.on('dragend', () => { void updateRoute() })
+
+  if (pinA.value && pinB.value) {
+    void updateRoute()
+  }
+}
+
 onMounted(() => {
   map = L.map('map', {
     zoomControl: false
@@ -466,6 +531,16 @@ onUnmounted(() => {
   height: 100%;
   position: relative;
   touch-action: manipulation;
+}
+
+.map-controls {
+  position: fixed;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
 }
 
 .location-button {
