@@ -243,7 +243,16 @@ const resetPins = () => {
     routeLine.value.remove()
     routeLine.value = null
   }
+  alternativeRoutes.value.forEach(route => {
+    if (route.line) route.line.remove()
+  })
+  alternativeRoutes.value = []
+  
   distance.value = null
+  showRouteModal.value = false
+  selectedRoute.value = 0
+  
+  if (map) map.setView(DEFAULT_CENTER, DEFAULT_ZOOM)
 }
 
 const handleResize = () => {
