@@ -4,7 +4,7 @@
     <div id="map" class="map-container">
       <button
         class="location-button"
-        @click="goToCurrentLocation"
+        @click.stop="goToCurrentLocation"
         :class="{ 'is-locating': isLocating }"
         aria-label="Get current location"
       >
@@ -251,8 +251,6 @@ const resetPins = () => {
   distance.value = null
   showRouteModal.value = false
   selectedRoute.value = 0
-  
-  if (map) map.setView(DEFAULT_CENTER, DEFAULT_ZOOM)
 }
 
 const handleResize = () => {
