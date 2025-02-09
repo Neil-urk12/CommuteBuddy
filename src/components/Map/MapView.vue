@@ -61,24 +61,48 @@
       </div>
     </div>
 
-    <div v-if="showRouteModal" class="route-modal">
-      <div class="route-modal-content">
-        <h3>Available Routes</h3>
-        <div class="routes-list">
-          <div
-            v-for="route in alternativeRoutes"
-            :key="route.id"
-            class="route-option"
-            :class="{ active: selectedRoute === route.id }"
-            @click="selectRoute(route.id)"
-          >
-            <div class="route-info">
-              <div class="route-time">{{ route.timeText }}</div>
+    <div v-if="showRouteModal" 
+      class="route-modal"
+      :class="{ 'expanded': isModalExpanded }"
+    >
+      <div class="modal-header" @click="isModalExpanded = !isModalExpanded">
+        <div class="handle"></div>
+        <h3>{{ alternativeRoutes.length }} Available Routes</h3>
+        <button class="expand-button" :class="{ 'expanded': isModalExpanded }">
+          ↑
+        </button>
+      </div>
+      <div class="routes-list">
+        <div
+          v-for="route in alternativeRoutes"
+          :key="route.id"
+          class="route-option"
+          :class="{ active: selectedRoute === route.id }"
+          @click="selectRoute(route.id)"
+        >
+          <div class="route-info">
+            <div class="route-main-info">
+              <div class="route-time">
+                <span class="time-value">{{ route.timeText }}</span>
+                <span class="route-label">{{ getFasterSlowerLabel(route) }}</span>
+              </div>
               <div class="route-distance">{{ route.distanceText }}</div>
+            </div>
+            <div class="route-details">
+              <div class="route-type">
+                {{ getRouteTypeDescription(route) }}
+              </div>
+              <div v-if="route.via" class="route-via">
+                via {{ route.via }}
+              </div>
             </div>
           </div>
         </div>
-        <button class="close-modal" @click="showRouteModal = false">Close</button>
+      </div>
+      <div class="modal-actions">
+        <button class="close-modal" @click="showRouteModal = false">
+          Close
+        </button>
       </div>
     </div>
   </div>
@@ -131,6 +155,8 @@ const lastSearchQuery = ref('')
 
 const directionsSearch = ref<any>(null)
 const isDirectionsMode = ref(false)
+
+const isModalExpanded = ref(false)
 
 const isLocationFavorited = (query: string) => {
   return searchStore.favorites.some(f => f.query === query)
@@ -193,10 +219,10 @@ const decodePolyline = (str: string): LatLngExpression[] => {
 const updateRoute = async () => {
   if (!map || !pinA.value || !pinB.value) return
 
-  if (routeLine.value) {
-    routeLine.value.remove()
-    routeLine.value = null
-  }
+  // Clear existing routes
+  alternativeRoutes.value.forEach(route => {
+    if (route.line) route.line.remove()
+  })
 
   const pointA = pinA.value.getLatLng()
   const pointB = pinB.value.getLatLng()
@@ -209,24 +235,48 @@ const updateRoute = async () => {
       `key=${import.meta.env.VITE_GRAPH_HOPPER_API_KEY}&` +
       `points_encoded=false&` +
       `algorithm=alternative_route&` +
-      `alternative_route.max_paths=10&` +
-      `alternative_route.max_weight_factor=1.4&` +
-      `ch.disable=true`
+      `alternative_route.max_paths=4&` +
+      `alternative_route.max_weight_factor=2.0&` +
+      `ch.disable=true&` +
+      `weighting=fastest&` +
+      `heading_penalty=100&` +
+      `custom_model={"priority":["primary","trunk","motorway"]}`
+
     const response = await fetch(url)
     const data = await response.json()
 
     if (data.paths?.length) {
-      alternativeRoutes.value.forEach(route => {
-        if (route.line) route.line.remove()
+      const sortedPaths = data.paths.sort((a: any, b: any) => {
+        const aScore = getRouteScore(a)
+        const bScore = getRouteScore(b)
+        return bScore - aScore
       })
 
-      alternativeRoutes.value = data.paths.map((path: any, index: number) => {
+      const colors = ['#007AFF', '#34C759', '#FF9500', '#FF3B30']
+      const currentSelectedId = selectedRoute.value // Store current selection
+
+      alternativeRoutes.value = sortedPaths.map((path: any, index: number) => {
         const coordinates = path.points.coordinates.map((coord: number[]) => [coord[1], coord[0]])
+        
+        const majorRoads = path.instructions
+          ?.filter((instruction: any) => {
+            const text = instruction.text.toLowerCase()
+            return (
+              text.includes('highway') ||
+              text.includes('expressway') ||
+              text.includes('national road') ||
+              text.includes('diversion') ||
+              text.includes('circumferential') ||
+              text.includes('avenue') ||
+              text.includes('boulevard') ||
+              text.includes('national')
+            )
+          })
         const line = L.polyline(coordinates, {
-          color: index === selectedRoute.value ? '#007AFF' : '#B0B0B0',
-          weight: index === selectedRoute.value ? 4 : 3,
-          opacity: index === selectedRoute.value ? 0.8 : 0.5,
-          dashArray: index === selectedRoute.value ? undefined : '5, 10'
+          color: colors[index],
+          weight: index === currentSelectedId ? 4 : 3, // Use currentSelectedId instead
+          opacity: index === currentSelectedId ? 0.8 : 0.5,
+          dashArray: index === currentSelectedId ? undefined : '5, 10'
         }).addTo(map!)
 
         return {
@@ -235,14 +285,19 @@ const updateRoute = async () => {
           line,
           coordinates,
           timeText: formatTime(path.time),
-          distanceText: formatDistance(path.distance)
+          distanceText: formatDistance(path.distance),
+          via: majorRoads?.[0]?.text.split(' onto ')[1]?.split(' ')[0] || '',
+          isMajorRoad: majorRoads?.length > 0
         }
       })
 
-      if (selectedRoute.value >= alternativeRoutes.value.length) {
-        selectedRoute.value = 0
+      // Only set selectedRoute if it's the initial route calculation
+      if (currentSelectedId === 0) {
+        selectedRoute.value = alternativeRoutes.value.findIndex(route => route.isMajorRoad) || 0
+      } else {
+        selectedRoute.value = currentSelectedId // Preserve the selected route
       }
-
+      
       distance.value = alternativeRoutes.value[selectedRoute.value].distance / 1000
       showRouteModal.value = alternativeRoutes.value.length > 1
     } else {
@@ -397,8 +452,27 @@ const formatDistance = (meters: number): string => {
 }
 
 const selectRoute = (routeId: number) => {
+  const previousRoute = alternativeRoutes.value[selectedRoute.value]
+  const newRoute = alternativeRoutes.value[routeId]
+  
+  if (previousRoute?.line) {
+    previousRoute.line.setStyle({
+      weight: 3,
+      opacity: 0.5,
+      dashArray: '5, 10'
+    })
+  }
+  
+  if (newRoute?.line) {
+    newRoute.line.setStyle({
+      weight: 4,
+      opacity: 0.8,
+      dashArray: undefined
+    })
+  }
+  
   selectedRoute.value = routeId
-  void updateRoute()
+  distance.value = newRoute.distance / 1000
 }
 
 const addCurrentToFavorites = () => {
@@ -431,7 +505,6 @@ const dismissSavePrompt = () => {
 const handleGetDirections = (location: { lat: number, lng: number }) => {
   if (!map) return
 
-  // Set destination pin
   if (pinB.value) {
     pinB.value.remove()
   }
@@ -441,7 +514,6 @@ const handleGetDirections = (location: { lat: number, lng: number }) => {
   }).addTo(map)
   pinB.value.on('dragend', () => { void updateRoute() })
 
-  // Set origin pin at current location if no pinA
   if (!pinA.value) {
     const center = map.getCenter()
     pinA.value = L.marker([center.lat, center.lng], {
@@ -479,6 +551,45 @@ const handleDirectionPin = (type: 'A' | 'B', location: { lat: number, lng: numbe
   if (pinA.value && pinB.value) {
     void updateRoute()
   }
+}
+
+const getFasterSlowerLabel = (route: any) => {
+  if (!alternativeRoutes.value.length) return ''
+  
+  const fastestRoute = alternativeRoutes.value.reduce((prev, curr) => 
+    curr.time < prev.time ? curr : prev
+  )
+  
+  if (route.id === fastestRoute.id) return 'Fastest route'
+  
+  const timeDiff = Math.round((route.time - fastestRoute.time) / 60000)
+  return `${timeDiff} min slower`
+}
+
+const getRouteTypeDescription = (route: any) => {
+  if (route.instructions?.some((instruction: any) => 
+    instruction.text.includes('Briones') || 
+    instruction.text.includes('Cebu North')
+  )) {
+    return 'Via M.C. Briones St/Cebu North Rd'
+  }
+  
+  const avgSegmentLength = route.distance / (route.instructions?.length || 1)
+  if (avgSegmentLength > 5000) return 'Via major highway'
+  if (avgSegmentLength > 2000) return 'Via main roads'
+  return 'Via local roads'
+}
+
+const getRouteScore = (route: any) => {
+  const avgSegmentLength = route.distance / (route.instructions?.length || 1)
+  const hasMajorRoads = route.instructions?.some((instruction: any) => 
+    instruction.text.includes('Briones') || 
+    instruction.text.includes('Cebu North') ||
+    instruction.text.includes('Highway') ||
+    instruction.text.includes('National')
+  )
+  
+  return (avgSegmentLength * 0.6) + (hasMajorRoads ? 5000 : 0)
 }
 
 onMounted(() => {
@@ -754,64 +865,171 @@ onUnmounted(() => {
   right: 0;
   background: white;
   border-radius: 16px 16px 0 0;
-  padding: 20px;
+  padding: 0;
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   z-index: 1001;
+  transition: transform 0.3s ease;
+  max-height: 90vh;
+  
+  &.expanded {
+    transform: translateY(0);
+  }
+  
+  &:not(.expanded) {
+    transform: translateY(calc(100% - 80px));
+  }
+}
 
+.modal-header {
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  
+  .handle {
+    width: 36px;
+    height: 4px;
+    background: #ddd;
+    border-radius: 2px;
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  
   h3 {
-    margin: 0 0 16px;
-    font-size: 18px;
+    margin: 16px 0 0;
+    font-size: 16px;
+    color: #333;
+  }
+  
+  .expand-button {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: #666;
+    padding: 8px;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+    
+    &.expanded {
+      transform: translateY(-50%) rotate(180deg);
+    }
   }
 }
 
 .routes-list {
-  max-height: 300px;
+  max-height: calc(90vh - 160px);
   overflow-y: auto;
+  padding: 0 20px;
 }
 
 .route-option {
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 8px;
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 12px;
   cursor: pointer;
+  border: 1px solid #eee;
   transition: all 0.2s ease;
 
   &:hover {
-    background: #f5f5f5;
+    background: #f8f9fa;
+    transform: translateY(-1px);
   }
 
   &.active {
     background: #e6f2ff;
-    border: 1px solid #007AFF;
+    border-color: #007AFF;
+    
+    .route-time {
+      color: #007AFF;
+    }
   }
 }
 
 .route-info {
+  .route-main-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+  }
+
   .route-time {
+    font-size: 18px;
     font-weight: 600;
-    font-size: 16px;
+    
+    .time-value {
+      margin-right: 8px;
+    }
+    
+    .route-label {
+      font-size: 14px;
+      font-weight: normal;
+      color: #666;
+    }
   }
 
   .route-distance {
-    font-size: 14px;
     color: #666;
-    margin-top: 4px;
+  }
+
+  .route-details {
+    display: flex;
+    gap: 12px;
+    font-size: 13px;
+    color: #666;
+    margin-top: 8px;
+  }
+
+  .route-type {
+    // Empty rule - the content is handled by the getRouteTypeDescription function
+  }
+
+  .route-via {
+    // Empty rule - the content is handled in the template
+  }
+}
+
+.modal-actions {
+  padding: 16px 20px;
+  border-top: 1px solid #eee;
+}
+
+.start-route {
+  background: #007AFF;
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: #0056b3;
   }
 }
 
 .close-modal {
-  width: 100%;
+  background: #f0f0f0;
+  color: #666;
   padding: 12px;
-  margin-top: 16px;
-  border: none;
-  background: #007AFF;
-  color: white;
   border-radius: 8px;
+  border: none;
   font-weight: 500;
   cursor: pointer;
+  transition: all 0.2s ease;
 
   &:hover {
-    background: #0056b3;
+    background: #e0e0e0;
   }
 }
 
