@@ -15,7 +15,6 @@ export const useLocationStore = defineStore('location', {
   actions: {
     setLastPosition(position: LatLng) {
       this.lastPosition = position
-      // Save to localStorage
       localStorage.setItem('lastPosition', JSON.stringify(position))
     },
 

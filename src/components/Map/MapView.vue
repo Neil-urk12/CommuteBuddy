@@ -2,8 +2,8 @@
   <div class="map-wrapper">
     <SearchBar @search="handleSearch" />
     <div id="map" class="map-container">
-      <button 
-        class="location-button" 
+      <button
+        class="location-button"
         @click="goToCurrentLocation"
         :class="{ 'is-locating': isLocating }"
         aria-label="Get current location"
@@ -11,18 +11,17 @@
         <span class="location-icon">📍</span>
         <span class="loading-spinner" v-if="isLocating"></span>
       </button>
-      <button 
-        class="reset-button" 
+      <button
+        class="reset-button"
         @click.stop="resetPins"
         v-if="hasAnyPin"
         aria-label="Reset pins"
       >
         Reset
       </button>
-      
-      <!-- Add this new distance display -->
-      <div 
-        v-if="hasBothPins && distance !== null" 
+
+      <div
+        v-if="hasBothPins && distance !== null"
         class="distance-display"
       >
         <div class="distance-value">
@@ -34,7 +33,6 @@
       </div>
     </div>
 
-    <!-- Add route selection modal -->
     <div v-if="showRouteModal" class="route-modal">
       <div class="route-modal-content">
         <h3>Available Routes</h3>
@@ -89,32 +87,28 @@ const createCustomMarker = (label: string) => {
   })
 }
 
-// Add these new refs and state variables after the existing ones
 const routeLine = ref<L.Polyline | null>(null)
 const distance = ref<number | null>(null)
 const selectedRoute = ref<number>(0)
 const alternativeRoutes = ref<any[]>([])
 const showRouteModal = ref(false)
 
-// Add inside the script setup
 const searchStore = useSearchStore()
 
-// Handle map clicks
 const handleMapClick = (e: L.LeafletMouseEvent) => {
   if (!map) return
-  
+
   const latlng = e.latlng
-  
+
   if (!pinA.value) {
-    pinA.value = L.marker(latlng, { 
+    pinA.value = L.marker(latlng, {
       icon: createCustomMarker('A'),
       draggable: true
     }).addTo(map!)
-    
-    // Add drag end handler for pin A
+
     pinA.value.on('dragend', () => { void updateRoute() })
   } else if (!pinB.value) {
-    pinB.value = L.marker(latlng, { 
+    pinB.value = L.marker(latlng, {
       icon: createCustomMarker('B'),
       draggable: true
     }).addTo(map!)
@@ -123,14 +117,13 @@ const handleMapClick = (e: L.LeafletMouseEvent) => {
   }
 }
 
-// Add this utility function to decode the polyline
 const decodePolyline = (str: string): LatLngExpression[] => {
   const points: LatLngExpression[] = []
   let index = 0, lat = 0, lng = 0
 
   while (index < str.length) {
     let shift = 0, result = 0
-    
+
     do {
       result |= (str.charCodeAt(index) - 63 - 1) << shift
       shift += 5
@@ -138,39 +131,37 @@ const decodePolyline = (str: string): LatLngExpression[] => {
     } while (str.charCodeAt(index - 1) >= 0x20)
 
     lat += ((result & 1) ? ~(result >> 1) : (result >> 1))
-    
+
     shift = 0
     result = 0
-    
+
     do {
       result |= (str.charCodeAt(index) - 63 - 1) << shift
       shift += 5
       index++
     } while (str.charCodeAt(index - 1) >= 0x20)
-    
+
     lng += ((result & 1) ? ~(result >> 1) : (result >> 1))
-    
+
     points.push([lat / 1e5, lng / 1e5])
   }
-  
+
   return points
 }
 
-// Update the updateRoute function
 const updateRoute = async () => {
   if (!map || !pinA.value || !pinB.value) return
-  
+
   if (routeLine.value) {
     routeLine.value.remove()
     routeLine.value = null
   }
-  
+
   const pointA = pinA.value.getLatLng()
   const pointB = pinB.value.getLatLng()
-  
+
   try {
-    // Request alternative routes by adding alternative_route_max_paths
-    const url = `https://graphhopper.com/api/1/route?` + 
+    const url = `https://graphhopper.com/api/1/route?` +
       `point=${pointA.lat},${pointA.lng}&` +
       `point=${pointB.lat},${pointB.lng}&` +
       `vehicle=car&` +
@@ -184,7 +175,6 @@ const updateRoute = async () => {
     const data = await response.json()
 
     if (data.paths?.length) {
-      // Clear existing routes
       alternativeRoutes.value.forEach(route => {
         if (route.line) route.line.remove()
       })
@@ -219,7 +209,6 @@ const updateRoute = async () => {
     }
   } catch (error) {
     console.warn('Routing failed:', error)
-    // Fallback to straight line
     routeLine.value = L.polyline([
       [pointA.lat, pointA.lng],
       [pointB.lat, pointB.lng]
@@ -229,7 +218,7 @@ const updateRoute = async () => {
       opacity: 0.8,
       dashArray: '5, 10'
     }).addTo(map!)
-    
+
     distance.value = calculateDistance(pointA, pointB)
   }
 
@@ -241,7 +230,6 @@ const updateRoute = async () => {
   })
 }
 
-// Reset pins
 const resetPins = () => {
   if (pinA.value) {
     pinA.value.remove()
@@ -258,24 +246,29 @@ const resetPins = () => {
   distance.value = null
 }
 
-// Handle window resize
 const handleResize = () => {
   isMobile.value = window.innerWidth <= 768
-  if (map) {
-    map.removeControl(map.zoomControl)
+  if (map?.zoomControl) {
+    map.zoomControl.remove()
+
     if (!isMobile.value) {
-      L.control.zoom({ position: 'topright' }).addTo(map)
+      map.zoomControl.setPosition('topright')
+      map.zoomControl.addTo(map)
     }
   }
 }
 
-// Search handling
 const handleSearch = async (query: string, isConfirmed: boolean = false) => {
   if (!query || !isConfirmed) return
-  
+
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
+      `https://nominatim.openstreetmap.org/search?` +
+      `format=json&` +
+      `q=${encodeURIComponent(query)}&` +
+      `viewbox=116.94,4.58,126.60,21.12&` +  // Philippines bounding box
+      `bounded=0&` +  // Allow results outside viewbox but prioritize inside
+      `countrycodes=ph`  // Prioritize Philippines results
     )
     const data = await response.json()
     
@@ -283,7 +276,6 @@ const handleSearch = async (query: string, isConfirmed: boolean = false) => {
       const { lat, lon } = data[0]
       map.setView([parseFloat(lat), parseFloat(lon)], 15)
       
-      // Only add to search history when the search is confirmed
       searchStore.addToHistory(query, parseFloat(lat), parseFloat(lon))
     }
   } catch (error) {
@@ -314,20 +306,18 @@ const goToCurrentLocation = async () => {
   }
 }
 
-// Add this utility function for calculating distance
 const calculateDistance = (latlng1: L.LatLng, latlng2: L.LatLng): number => {
-  const R = 6371 // Earth's radius in km
+  const R = 6371
   const dLat = (latlng2.lat - latlng1.lat) * Math.PI / 180
   const dLon = (latlng2.lng - latlng1.lng) * Math.PI / 180
-  const a = 
+  const a =
     Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(latlng1.lat * Math.PI / 180) * Math.cos(latlng2.lat * Math.PI / 180) * 
+    Math.cos(latlng1.lat * Math.PI / 180) * Math.cos(latlng2.lat * Math.PI / 180) *
     Math.sin(dLon/2) * Math.sin(dLon/2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
   return R * c
 }
 
-// Add these utility functions
 const formatTime = (milliseconds: number): string => {
   const minutes = Math.round(milliseconds / 60000)
   if (minutes < 60) return `${minutes} min`
@@ -341,7 +331,6 @@ const formatDistance = (meters: number): string => {
   return `${km.toFixed(1)} km`
 }
 
-// Add with other functions
 const selectRoute = (routeId: number) => {
   selectedRoute.value = routeId
   void updateRoute()
@@ -349,21 +338,25 @@ const selectRoute = (routeId: number) => {
 
 onMounted(() => {
   map = L.map('map', {
-    zoomControl: !isMobile.value
+    zoomControl: false
   }).setView(DEFAULT_CENTER, DEFAULT_ZOOM)
 
+  const zoomControl = L.control.zoom({
+    position: isMobile.value ? undefined : 'topright'
+  })
+
   if (!isMobile.value) {
-    L.control.zoom({ position: 'topright' }).addTo(map)
+    zoomControl.addTo(map)
   }
+
+  map.zoomControl = zoomControl
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors'
   }).addTo(map)
 
-  // Add map click handler
   map.on('click', handleMapClick)
 
-  // Add resize listener
   window.addEventListener('resize', handleResize)
 })
 
@@ -414,10 +407,10 @@ onUnmounted(() => {
   -webkit-tap-highlight-color: transparent;
   padding: 12px;
   touch-action: manipulation;
-  
+
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
-  
+
   &:hover {
     background-color: #f0f0f0;
   }
@@ -495,7 +488,7 @@ onUnmounted(() => {
   justify-content: center;
   font-weight: bold;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  
+
   &::after {
     content: '';
     position: absolute;
@@ -526,7 +519,6 @@ onUnmounted(() => {
     padding: 10px 20px;
   }
 
-  // Hide default zoom controls on mobile
   :deep(.leaflet-control-zoom) {
     display: none;
   }
@@ -541,7 +533,7 @@ onUnmounted(() => {
 
 .distance-display {
   position: fixed;
-  top: 80px; // Below search bar
+  top: 80px;
   left: 50%;
   transform: translateX(-50%);
   background: white;
@@ -550,13 +542,13 @@ onUnmounted(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   text-align: center;
   z-index: 1000;
-  
+
   .distance-value {
     font-size: 18px;
     font-weight: 600;
     color: #007AFF;
   }
-  
+
   .distance-label {
     font-size: 12px;
     color: #666;
@@ -569,11 +561,11 @@ onUnmounted(() => {
     top: auto;
     bottom: max(env(safe-area-inset-bottom, 152px), 152px);
     padding: 10px 16px;
-    
+
     .distance-value {
       font-size: 16px;
     }
-    
+
     .distance-label {
       font-size: 11px;
     }
@@ -590,7 +582,7 @@ onUnmounted(() => {
   padding: 20px;
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   z-index: 1001;
-  
+
   h3 {
     margin: 0 0 16px;
     font-size: 18px;
@@ -608,11 +600,11 @@ onUnmounted(() => {
   margin-bottom: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
-  
+
   &:hover {
     background: #f5f5f5;
   }
-  
+
   &.active {
     background: #e6f2ff;
     border: 1px solid #007AFF;
@@ -624,7 +616,7 @@ onUnmounted(() => {
     font-weight: 600;
     font-size: 16px;
   }
-  
+
   .route-distance {
     font-size: 14px;
     color: #666;
@@ -642,7 +634,7 @@ onUnmounted(() => {
   border-radius: 8px;
   font-weight: 500;
   cursor: pointer;
-  
+
   &:hover {
     background: #0056b3;
   }
