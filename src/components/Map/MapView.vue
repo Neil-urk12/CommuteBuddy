@@ -1,6 +1,9 @@
 <template>
   <div class="map-wrapper">
-    <SearchBar @search="handleSearch" />
+    <SearchBar 
+      @search="handleSearch" 
+      :onSearchResult="(result) => currentSearchResult = result"
+    />
     <div id="map" class="map-container">
       <button
         class="location-button"
@@ -18,6 +21,14 @@
         aria-label="Reset pins"
       >
         Reset
+      </button>
+      <button 
+        class="favorite-button" 
+        @click="addCurrentToFavorites"
+        v-if="map"
+        aria-label="Save current location"
+      >
+        ☆ Save Location
       </button>
 
       <div
@@ -94,6 +105,8 @@ const alternativeRoutes = ref<any[]>([])
 const showRouteModal = ref(false)
 
 const searchStore = useSearchStore()
+
+const currentSearchResult = ref<any>(null)
 
 const handleMapClick = (e: L.LeafletMouseEvent) => {
   if (!map) return
@@ -283,6 +296,13 @@ const handleSearch = async (query: string, isConfirmed: boolean = false) => {
       const { lat, lon } = data[0]
       map.setView([parseFloat(lat), parseFloat(lon)], 15)
       
+      currentSearchResult.value = {
+        query,
+        timestamp: Date.now(),
+        lat: parseFloat(lat),
+        lng: parseFloat(lon)
+      }
+      
       searchStore.addToHistory(query, parseFloat(lat), parseFloat(lon))
     }
   } catch (error) {
@@ -341,6 +361,17 @@ const formatDistance = (meters: number): string => {
 const selectRoute = (routeId: number) => {
   selectedRoute.value = routeId
   void updateRoute()
+}
+
+const addCurrentToFavorites = () => {
+  if (!map) return
+  const center = map.getCenter()
+  searchStore.addToFavorites({
+    query: 'Saved Location',
+    timestamp: Date.now(),
+    lat: center.lat,
+    lng: center.lng
+  })
 }
 
 onMounted(() => {
@@ -475,6 +506,26 @@ onUnmounted(() => {
   &:active {
     background-color: #e0e0e0;
     transform: scale(0.98);
+  }
+}
+
+.favorite-button {
+  position: fixed;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  
+  &:hover {
+    background-color: #f0f0f0;
   }
 }
 
