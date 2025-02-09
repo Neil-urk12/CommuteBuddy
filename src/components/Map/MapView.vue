@@ -13,7 +13,7 @@
       </button>
       <button 
         class="reset-button" 
-        @click="resetPins"
+        @click.stop="resetPins"
         v-if="hasAnyPin"
         aria-label="Reset pins"
       >
@@ -64,6 +64,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import SearchBar from './SearchBar.vue'
 import type { LatLng, LatLngExpression } from 'leaflet'
+import { useSearchStore } from 'src/stores/searchStore'
 
 const DEFAULT_CENTER: [number, number] = [12.8797, 121.7740]
 const DEFAULT_ZOOM = 6
@@ -94,6 +95,9 @@ const distance = ref<number | null>(null)
 const selectedRoute = ref<number>(0)
 const alternativeRoutes = ref<any[]>([])
 const showRouteModal = ref(false)
+
+// Add inside the script setup
+const searchStore = useSearchStore()
 
 // Handle map clicks
 const handleMapClick = (e: L.LeafletMouseEvent) => {
@@ -266,8 +270,8 @@ const handleResize = () => {
 }
 
 // Search handling
-const handleSearch = async (query: string) => {
-  if (!query) return
+const handleSearch = async (query: string, isConfirmed: boolean = false) => {
+  if (!query || !isConfirmed) return
   
   try {
     const response = await fetch(
@@ -278,6 +282,9 @@ const handleSearch = async (query: string) => {
     if (data && data.length > 0 && map) {
       const { lat, lon } = data[0]
       map.setView([parseFloat(lat), parseFloat(lon)], 15)
+      
+      // Only add to search history when the search is confirmed
+      searchStore.addToHistory(query, parseFloat(lat), parseFloat(lon))
     }
   } catch (error) {
     console.error('Search error:', error)
